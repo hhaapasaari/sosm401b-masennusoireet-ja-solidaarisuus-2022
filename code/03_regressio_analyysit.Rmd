@@ -1,0 +1,45 @@
+---
+title: "Masennusoireiden jatkuvuuden suhde sosiaaliturvan solidaarisuuskäsityksiin suomenkielisillä mannersuomalaisilla vuonna 2022"
+author: Henri Haapasaari
+date: 2026-01-13
+output: html_notebook
+---
+
+# Lataa editoidun aineiston datankäsittelyä varten
+
+```{r}
+
+df_data_edited <- read_rds(here("data", "data_edited.rds"))
+
+```
+
+
+
+# Ordinaaliset logistiset regressio mallit
+
+```{r}
+# Pääselittäjä ja kulttuuriin viittaavat kontrollimuuttujat
+
+malli1 <-polr(sosiaaliturva_koettu_solidaarisuus ~ fa_masennus_keskiarvosummamuuttuja + sukupuoli + ikaryhma + ylin_koulutus, data = df_data_edited, Hess = TRUE)
+
+# Lisää taloudellisia muuttujia
+
+malli2 <-polr(sosiaaliturva_koettu_solidaarisuus ~ fa_masennus_keskiarvosummamuuttuja + sukupuoli + ikaryhma + ylin_koulutus + kotitalouden_ekvivalenttinettotulot_neliojuuri_tuhansina + tyomarkkina_asema + saako_toimeentulotukea, data = df_data_edited, Hess = TRUE)
+
+# Lisää sosiaalisia muuttujia
+
+malli3 <-polr(sosiaaliturva_koettu_solidaarisuus ~ fa_masennus_keskiarvosummamuuttuja + sukupuoli + ikaryhma + ylin_koulutus + kotitalouden_ekvivalenttinettotulot_neliojuuri_tuhansina + tyomarkkina_asema + saako_toimeentulotukea + kotitalouden_muoto + yksinaisyyden_jatkuvuus_kokemus + luottamus_ihmisiin, data = df_data_edited, Hess = TRUE)
+```
+
+
+```{r}
+summary(malli1)
+exp(coef(malli1))
+
+summary(malli2)
+exp(coef(malli2))
+
+summary(malli3)
+exp(coef(malli3))
+
+```

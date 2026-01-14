@@ -1,0 +1,179 @@
+---
+title: "Masennusoireiden jatkuvuuden suhde sosiaaliturvan solidaarisuuskäsityksiin suomenkielisillä mannersuomalaisilla vuonna 2022"
+author: Henri Haapasaari
+date: 2026-01-13
+output: html_notebook
+---
+
+# Kirjastot ja alustus
+
+```{r, echo=F, warning=F}
+
+library(MASS)
+library(tidyverse)
+library(forcats)
+library(haven)
+library(janitor)
+library(psych)
+library(lm.beta)
+library(broom)
+library(writexl)
+library(sostieteidentaulukointityylit)
+library(here)
+library(modelsummary)
+library(brant)
+
+# Asettaa siemenluvun toistettavuuden varmistamiseksi
+set.seed(1002)
+```
+
+# Data
+
+```{r}
+
+
+df_data_raw <- read_csv(here("data", "daF3999_fin.csv"))
+
+```
+
+# Muuttujamuunnokset analyysiin
+
+Suorittaa tarvittavat muuttujamuunnokset ja imputoinnit.
+```{r}
+df_data_raw <- df_data_raw |>
+  mutate(
+    
+    # Selitettävä muuttuja
+    sosiaaliturva_koettu_solidaarisuus = factor(q11_1, ordered = TRUE),
+    
+    # Pääselittäjät ja faktorianalyysin muuttujat
+    masennusksen_jatkuvuus_kokemus = q9_2,
+    epaonnistumisen_jatkuvuus_kokemus = q9_3,
+    onnellisuuden_jatkuvuus_kokemus_kaannetty = q9_4 * -1 + 6,
+
+    
+    # Imputointi
+    
+    ## Imputoi yksinasuvat kotitaloudet hyödyntäen kotitalouden muoto -muuttujaa, missä t4 == "1" tarkoittaa henkilön asuvan yksin
+    
+    t5_1_imp_01 = ifelse(t4 == "1" & is.na(t5_1), 1, t5_1), # Olettaa yksin asuvan aikuisen kotitalouden kooksi 1
+    t5_2_imp_01 = ifelse(t4 == "1" & is.na(t5_2), 0, t5_2), # Olettaa että yksinasuvalla aikuisella ei ole kotitaloudessa 0-6v lapsia
+    t5_3_imp_01 = ifelse(t4 == "1" & is.na(t5_3), 0, t5_3), # Olettaa että yksinasuvalla aikuisella ei ole kotitaloudessa 7-17v lapsia
+    
+    ## Imputoi parisuhteessa ilman lapsia asuvat kotitaloudet (2 henkilön kotitaloudet) hyödyntäen kotitalouden muoto -muuttujaa , missä t4 == "3" tarkoittaa henkilön asuvan parisuhteessa ilman lapsia
+    t5_1_imp_02 = ifelse(t4 == "3" & is.na(t5_1_imp_01), 2, t5_1_imp_01), # Olettaa että parisuhteessa ilman lapsia asuvassa kotitaloudessa on 2 aikuista
+    t5_2_imp_02 = ifelse(t4 == "3" & is.na(t5_2_imp_01), 0, t5_2_imp_01), # Olettaa että parisuhteessa ilman lapsia asuvassa kotitaloudessa on 0 kpl 0-6v lasta
+    t5_3_imp_02 = ifelse(t4 == "3" & is.na(t5_3_imp_01), 0, t5_3_imp_01), # Olettaa että parisuhteessa ilman lapsia asuvassa kotitaloudessa on 0 kpl 7-17v lasta
+
+            
+    aikuiset_yhdistetty = case_when(t5_1_imp_02 == 0 ~ 1, t5_1_imp_02 == 1 ~ 1, TRUE ~ t5_1_imp_02), # Olettaa että 0 aikuisen kotitaloudet ovat vähintään yhden aikuisen kotitalouksia, koska kaikki vastanneet olivat aikuisia
+
+    
+    # Vakioitavat muuttujat
+    
+    ## Kotitalouden nettotulot ja neliöjuuriskaalatut ekvivalenttitulot
+    kotitalouden_nettotulot = t9,    
+    kotitalouden_koko = aikuiset_yhdistetty + t5_2_imp_02 + t5_3_imp_02,
+    kotitalouden_ekvivalenttinettotulot_neliojuuri = kotitalouden_nettotulot / sqrt(kotitalouden_koko),
+    kotitalouden_ekvivalenttinettotulot_neliojuuri_tuhansina = kotitalouden_ekvivalenttinettotulot_neliojuuri / 1000,
+    
+    ## Muut muuttujat
+    sukupuoli = t2 |> as_factor() |> fct_recode("mies" = "1", "nainen" = "2", "muu" = "3"),
+    ylin_koulutus = t7 |> as_factor() |> fct_recode(
+      "enintaan_peruskoulu" = "1",
+      "lukio" = "2",
+      "ammatillinen_koulutus" = "3",
+      "alempi_korkeakoulututkinto" = "4",
+      "vahintaan_ylempi_korkeakoulututkinto" = "5"
+      ),
+    tyomarkkina_asema = t8 |> as_factor() |> fct_recode(
+      "opiskelija" = "1",
+      "elakelainen" = "2",
+      "tyoton" = "3",
+      "palkkatossa" = "4",
+      "yrittaja" = "5",
+      "maanviljelija" = "6",
+      "muu" = "7"
+      ) |> 
+      fct_relevel("palkkatossa"),
+    saako_toimeentulotukea = q7 |> as_factor() |> fct_recode("kylla" = "1", "Ei" = "2") |>
+      fct_relevel("Ei"),
+    yksinaisyyden_jatkuvuus_kokemus = q9_1 |> as_factor() |> fct_recode(
+      "ei_koskaan" = "1",
+      "hyvin_harvoin" = "2",
+      "joskus" = "3",
+      "melko_usein" = "4",
+      "jatkuvasti" = "5"
+    ),
+    luottamus_ihmisiin = q4,
+    kotitalouden_muoto = t4 |> as_factor() |> fct_recode(
+      "yksin_asuva" = "1",
+      "yksinhuoltaja" = "2",
+      "parisuhteessa_ilman_lapsia" = "3",
+      "parisuhteessa_lapsia" = "4",
+      "asuu_vanhempien_kanssa" = "5",
+      "muu" = "6"
+    ),
+    
+    # MAR-puuttuvuuden lisäryhmät
+    ikaryhma = ikaryhma |> as_factor() |> fct_recode(
+      "18-24" = "1",
+      "25-34" = "2",
+      "35-44" = "3",
+      "45-54" = "4",
+      "55-64" = "5",
+      "65-79" = "6"
+    )
+  )
+
+```
+
+
+# Muuttujat taulukoihin
+
+
+```{r}
+
+# Muuttaa järjestysasteiset muuttujat luokkamuuttujiksi helpompaa taulukointia varten
+
+df_data_raw <- df_data_raw |>
+  mutate(
+    sosiaaliturva_koettu_solidaarisuus_taulukkoon = sosiaaliturva_koettu_solidaarisuus |> as_factor() |>
+           fct_recode("taysin_epasolidaarinen" = "1",
+                      "osittain_epasolidaarinen" = "2",
+                      "neutraali" = "3",
+                      "osittain_solidaarinen" = "4",
+                      "taysin_solidaarinen" = "5"),
+    masennusksen_jatkuvuus_kokemus_taulukkoon = masennusksen_jatkuvuus_kokemus |> as_factor() |>
+           fct_recode("ei_koskaan" = "1",
+                      "hyvin_harvoin" = "2",
+                      "joskus" = "3",
+                      "melko_usein" = "4",
+                      "jatkuvasti" = "5"),
+    epaonnistumisen_jatkuvuus_kokemus_taulukkoon = epaonnistumisen_jatkuvuus_kokemus |> as_factor() |>
+         fct_recode(
+           "ei_koskaan" = "1",
+           "hyvin_harvoin" = "2",
+           "joskus" = "3",
+           "melko_usein" = "4",
+           "jatkuvasti" = "5"
+         ),
+    OnnellisuudenJatkuvuusKokemus_taulukkoon = q9_4 |> as_factor() |>
+         fct_recode(
+           "ei_koskaan" = "1",
+           "hyvin_harvoin" = "2",
+           "joskus" = "3",
+           "melko_usein" = "4",
+           "jatkuvasti" = "5")
+         )
+
+
+```
+
+# Muuttujien tallennus
+
+```{r}
+# Tallentaa uudet muuttujat ja muuttujamuunnokset uuteen rds-tiedostoon data-kansioon
+
+saveRDS(df_data_raw, here("data", "data_edited.rds"))
+```

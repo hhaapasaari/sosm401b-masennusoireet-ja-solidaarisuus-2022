@@ -1,0 +1,453 @@
+---
+title: "Masennusoireiden jatkuvuuden suhde sosiaaliturvan solidaarisuuskäsityksiin suomenkielisillä mannersuomalaisilla vuonna 2022"
+author: Henri Haapasaari
+date: 2026-01-13
+output: html_notebook
+---
+
+# Tekoälyavusteisesti luotu funktio, joka luo muuttujataulukon luokkatyyppisistä muuttujista hyödyntäen tidyverse ja janitor paketteja
+
+Funktio vaatii dplyr, purrr ja janitor paketit toimiakseen.
+```{r}
+
+
+# Funkito ottaa dataframen ja muuttujavektorin syötteenä ja palauttaa muuttujat taulukoituna (Muuttuja, Arvo, Lukumäärä, %, % vastanneista).
+# Funktion käyttöö vaatii dplyr ja janitor paketit.
+
+
+tee_luokkataulukko <- function(data, muuttujat) {
+  # Iteroi muuttujat ja yhdistää tulokset
+  map_dfr(muuttujat, function(var) {
+    
+    # 1.Laskee frekvenssit ja perusprosentit janitor::tabyl-funktiolla
+    t <- data %>%
+      tabyl(!!sym(var)) 
+    
+    # 2. Varmistetaa 'valid_percent' -sarakkeen olemassaolo
+    # jos sarake puuttuu valid_percent on sama kuin percent.
+    if (!"valid_percent" %in% names(t)) {
+       t <- t %>% mutate(valid_percent = percent)
+    }
+    
+    # 3. Muotoilee taulukon
+    t %>%
+      rename(Arvo = 1) %>%  
+      mutate(
+        Muuttuja = var,            
+        Arvo = as.character(Arvo), 
+        
+        # Laskee prosentit pyöristettynä yhteen desimaaliin
+        `%` = round(percent * 100, 1),
+        `% vastanneista` = round(valid_percent * 100, 1) 
+      ) %>%
+      
+      # Järjestää sarakkeet
+      select(Muuttuja, Arvo, `Lukumäärä (n=)` = n, `%`, `% vastanneista`)
+  })
+}
+```
+
+# Luo luokkamuuttujien esittelytaulukon hyödyntäen edellistä funktiota
+
+```{r}
+
+muuttujat_taulukkoon <- c("sosiaaliturva_koettu_solidaarisuus_taulukkoon", "masennusksen_jatkuvuus_kokemus_taulukkoon", "epaonnistumisen_jatkuvuus_kokemus_taulukkoon", "OnnellisuudenJatkuvuusKokemus_taulukkoon", "sukupuoli", "ikaryhma", "ylin_koulutus", "tyomarkkina_asema", "saako_toimeentulotukea", "kotitalouden_muoto", "yksinaisyyden_jatkuvuus_kokemus")
+
+mt_luokkamuuttujat <- tee_luokkataulukko(df_data_edited, muuttujat_taulukkoon)
+
+print(mt_luokkamuuttujat)
+```
+
+
+# Jatkuvien muuttujien esittelytaulukointi
+
+```{r}
+mt_jatkuvat_muuttujat <- df_data_edited |>
+  summarise(
+    across(
+      one_of("fa_masennus_keskiarvosummamuuttuja", "kotitalouden_nettotulot", "luottamus_ihmisiin"),
+      list(ka = mean, kh = sd),
+      na.rm = T
+      )
+    ) |>
+  round_half_up(2)
+
+mt_jatkuvat_muuttujat
+
+```
+
+# Tallentaa analyysissä hyödynnettyjen muuttujien tiedot .xlsx tiedostoihin results-kansioon
+
+```{r}
+write_xlsx(mt_luokkamuuttujat, here("results", "taulukko_luokkamuuttujat.xlsx"))
+write_xlsx(mt_jatkuvat_muuttujat, here("results", "taulukko_jatkuvat_muuttujat.xlsx"))
+```
+
+# Taulukoi faktorianalyysin ja tallentaa sen results-kansioon .xlsx tiedostona
+
+```{r}
+
+taulukko_masennus_fa <- tee_faktorianalyysitaulukko(fa_masennus) |> rename(masennusoireiden_jatkuvuus_12kk = PA1)
+write_xlsx(taulukko_masennus_fa, here("results", "taulukko_masennus_fa.xlsx"))
+```
+
+# Ristiintalukointi
+
+Faktorianalyysin perusteella tärkeimmän yksittäisen selittävän muuttujan selitettävän muuttujan ristiintaulukointi.
+Lyhyt lisäanalyysi, mitä ei ole käytetty raportissa.
+```{r}
+
+mt_ristiintaulukointi <- df_data_edited |>
+  tabyl(sosiaaliturva_koettu_solidaarisuus_taulukkoon, masennusksen_jatkuvuus_kokemus_taulukkoon) |>
+  adorn_percentages("row") |>
+  adorn_pct_formatting(digits = 2)
+
+mt_ristiintaulukointi
+```
+
+
+# Pylväskuvio selitettävästä muuttujasta
+
+Pylväskuvio selitettävästä muuttujasta presentaatiota varten.
+```{r}
+
+pylvaskuvio_selitettava_muuttuja <- df_data_edited |>
+  filter(!is.na(sosiaaliturva_koettu_solidaarisuus_taulukkoon)) |>
+  ggplot(aes(x = sosiaaliturva_koettu_solidaarisuus_taulukkoon)) +
+  geom_bar() +
+  scale_x_discrete(
+    labels = c(
+      "taysin_epasolidaarinen" = "Täysin\nepäsolidaarinen",
+      "osittain_epasolidaarinen" = "Osittain\nepäsolidaarinen",
+      "neutraali" = "neutraali",
+      "osittain_solidaarinen" = "Osittain\nsolidaarinen",
+      "taysin_solidaarinen" = "Täysin\nsolidaarinen"
+    )
+  ) +
+  scale_y_continuous(limits = c(0, 800)) +
+  labs(
+    x = "Sosiaaliturvan koettu solidaarisuus",
+    y = "Lukumäärä"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)
+  )
+
+pylvaskuvio_selitettava_muuttuja
+
+```
+
+# Tallennetaan pylväskuvion tiedostoon
+
+```{r}
+ggsave(here("results", "pylvaskuvio_selitettava_muuttuja.svg"), plot = pylvaskuvio_selitettava_muuttuja)
+```
+
+
+# Laatikkokuva pääselittäjästä ja selitettävästä muuttujasta
+
+```{r}
+
+laatikkokuva_sos_solidaarisuus_masennussummamuuttuja <- df_data_edited |>
+  filter(!is.na(sosiaaliturva_koettu_solidaarisuus_taulukkoon)) |>
+  ggplot(aes(x = fa_masennus_keskiarvosummamuuttuja, y = sosiaaliturva_koettu_solidaarisuus_taulukkoon)) +
+  geom_boxplot() +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    shape = 18,
+    size = 2,
+    color = "red") +
+  scale_y_discrete(
+    labels = c(
+      "taysin_epasolidaarinen" = "Täysin\nepäsolidaarinen",
+      "osittain_epasolidaarinen" = "Osittain\nepäsolidaarinen",
+      "neutraali" = "neutraali",
+      "osittain_solidaarinen" = "Osittain\nsolidaarinen",
+      "taysin_solidaarinen" = "Täysin\nsolidaarinen")
+    ) +
+  labs(
+    x = "Masennusoireiden jatkuvuus, 12kk\n(1 = ei lainkaan, 5 = jatkuvasti)",
+    y = "Sosiaaliturvan koettu solidaarisuus"
+  )
+
+laatikkokuva_sos_solidaarisuus_masennussummamuuttuja
+```
+
+# Masennusoireiden jatkuvuus 12kk taulukoituna jokaiselle sosiaaliturvan solidaarisuuden järjestysasteelle
+
+```{r}
+mt_masennusoireiden_jatkuvuus_sosiaaliturva_solidaarisuus <- df_data_edited |>
+  filter(!is.na(sosiaaliturva_koettu_solidaarisuus_taulukkoon)) |>
+  group_by(sosiaaliturva_koettu_solidaarisuus_taulukkoon) |>
+  summarise(
+    across(
+      one_of("fa_masennus_keskiarvosummamuuttuja"),
+      list(ka = mean, kh = sd, md = median),
+      na.rm = T
+    )
+  )
+
+taulukko_masennusoireiden_jatkuvuus_sosiaaliturva_solidaarisuus_valmis <- mt_masennusoireiden_jatkuvuus_sosiaaliturva_solidaarisuus |>
+  mutate(
+    across(
+      .cols = -sosiaaliturva_koettu_solidaarisuus_taulukkoon,
+      .fns = ~ round_half_up(., 2)
+    )
+  )
+
+taulukko_masennusoireiden_jatkuvuus_sosiaaliturva_solidaarisuus_valmis
+  
+```
+
+# Tallennetaan sekä laatikkokuvan, että taulukon pääselittäjästä ja selitettävästä tiedostoon
+
+```{r}
+
+ggsave(here("results", "laatikkokuva_sos_solidaarisuus_masennussummamuuttuja.svg"), plot = laatikkokuva_sos_solidaarisuus_masennussummamuuttuja)
+
+write_xlsx(taulukko_masennusoireiden_jatkuvuus_sosiaaliturva_solidaarisuus_valmis, here("results", "taulukko_masennusoireiden_jatkuvuus_sosiaaliturva_solidaarisuus_valmis.xlsx"))
+```
+
+# Visualisointi
+
+```{r}
+
+malli3_tulokset <- df_data_edited |>
+  select(sosiaaliturva_koettu_solidaarisuus, fa_masennus_keskiarvosummamuuttuja, sukupuoli, ikaryhma, ylin_koulutus, kotitalouden_ekvivalenttinettotulot_neliojuuri_tuhansina, tyomarkkina_asema, saako_toimeentulotukea, kotitalouden_muoto, yksinaisyyden_jatkuvuus_kokemus, luottamus_ihmisiin) |>
+  drop_na()
+
+malli3_probs <- predict(malli3, malli3data = malli3_tulokset, type = "probs")
+
+malli3_pitka <- malli3_tulokset |>
+  bind_cols(as.tibble(malli3_probs)) |>
+  pivot_longer(
+    cols = colnames(malli3_probs),
+    names_to = "Sosiaaliturvan_solidaarisuus",
+    values_to = "pred_prob"
+  )
+
+```
+
+
+```{r}
+
+ggplot(malli3_pitka, aes(fa_masennus_keskiarvosummamuuttuja, pred_prob, colour = kotitalouden_muoto)) +
+  geom_jitter(alpha = 0.4, width = 0.1) +
+  labs(y = "Ennustettu todenäköisyys") +
+  ylim(0, 1)
+
+```
+
+
+## Kotitalouden muoto
+
+```{r}
+ggplot(malli3_pitka, aes(fa_masennus_keskiarvosummamuuttuja, pred_prob, colour = kotitalouden_muoto)) +
+  geom_jitter(alpha = 0.4) +
+  facet_wrap(~Sosiaaliturvan_solidaarisuus) + 
+  labs(y = "Ennustettu todennäköisyys", 
+       x = "Masennuksen jatkuvuus\n(1 = ei lainkaan, 5 = jatkuvasti)") +
+  ylim(0, 1)
+
+```
+
+## sukupuoli
+
+```{r}
+ggplot(malli3_pitka, aes(fa_masennus_keskiarvosummamuuttuja, pred_prob, colour = sukupuoli)) +
+  geom_jitter(alpha = 0.4) +
+  facet_wrap(~Sosiaaliturvan_solidaarisuus) + 
+  labs(y = "Ennustettu todennäköisyys", 
+       x = "Masennuksen jatkuvuus\n(1 = ei lainkaan, 5 = jatkuvasti)") +
+  ylim(0, 1)
+
+```
+
+## Ylin koulutus
+
+```{r}
+ggplot(malli3_pitka, aes(fa_masennus_keskiarvosummamuuttuja, pred_prob, colour = ylin_koulutus)) +
+  geom_jitter(alpha = 0.4) +
+  facet_wrap(~Sosiaaliturvan_solidaarisuus) + 
+  labs(y = "Ennustettu todennäköisyys", 
+       x = "Masennuksen jatkuvuus\n(1 = ei lainkaan, 5 = jatkuvasti)") +
+  ylim(0, 1)
+
+```
+## Ikäryhmät
+
+```{r}
+facet_solidaarisuus_otsikot <- c("1" = "Täysin epäsolidaarinen",
+                                 "2" = "Osittain epäsolidaarinen",
+                                 "3" = "neutraali",
+                                 "4" = "Osittain solidaarinen",
+                                 "5" = "Täysin solidaarinen")
+
+kuvaaja_ikaryhma_facet_wrap <- ggplot(malli3_pitka, aes(fa_masennus_keskiarvosummamuuttuja, pred_prob, colour = ikaryhma)) +
+  geom_jitter(alpha = 0.4) +
+  facet_wrap(~Sosiaaliturvan_solidaarisuus, labeller = as_labeller(facet_solidaarisuus_otsikot)) +
+  geom_smooth(aes(group = 1), method = "lm", se = FALSE, color = "black", size = 1) +
+  labs(y = "Ennustettu todennäköisyys",
+       x = "Masennuksen jatkuvuus\n(1 = ei lainkaan, 5 = jatkuvasti)",
+       colour = "Ikäryhmä",
+       title = "Malli 3: Ennustetut todennäköisyydet",
+       subtitle = "Jatkuvan masennusoireiden yhteys sosiaaliturvan solidaarisuuskäsitykseen\n") +
+  ylim(0, 1)
+
+kuvaaja_ikaryhma_facet_wrap
+```
+
+## Luottamus ihmisiin
+
+```{r}
+kuvaaja_luottamus_facet_wrap <- ggplot(malli3_pitka, aes(fa_masennus_keskiarvosummamuuttuja, pred_prob, colour = luottamus_ihmisiin)) +
+  geom_jitter(alpha = 0.4) +
+  facet_wrap(~Sosiaaliturvan_solidaarisuus, labeller = as_labeller(facet_solidaarisuus_otsikot)) +
+  geom_smooth(aes(group = 1), method = "lm", se = FALSE, color = "black", size = 1) +
+  labs(y = "Ennustettu todennäköisyys", 
+       x = "Masennuksen jatkuvuus\n(1 = ei lainkaan, 5 = jatkuvasti)",
+       colour = "Luottamus ihmisiin",
+       title = "Malli 3: Ennustetut todennäköisyydet",
+       subtitle = "Jatkuvan masennusoireiden yhteys sosiaaliturvan solidaarisuuskäsitykseen\n") +
+  ylim(0, 1)
+
+kuvaaja_luottamus_facet_wrap
+```
+
+
+
+## Visualisointien tallennus
+
+```{r}
+# Tallentaa kuvaajat vektorigrafiikkana results-kansioon
+
+ggsave(here("results", "kuvaaja_ikaryhma_facet_wrap.svg"), plot = kuvaaja_ikaryhma_facet_wrap)
+ggsave(here("results", "kuvaaja_luottamus_facet_wrap.svg"), plot = kuvaaja_luottamus_facet_wrap)
+```
+
+# Yksinkertaiset taulukot kaikille malleille
+
+```{r}
+taulukko_malli1 <- tidy(malli1, exponentiate = T, conf.int = T) |>
+  dplyr::select(Muuttuja = term, Estimaatti=estimate, "LV Alaraja" = conf.low, 
+         "LV Yläraja" = conf.high) |>
+  mutate_if(is.numeric, round, 3)
+
+taulukko_malli2 <- tidy(malli2, exponentiate = T, conf.int = T) |>
+  dplyr::select(Muuttuja = term, Estimaatti=estimate, "LV Alaraja" = conf.low, 
+         "LV Yläraja" = conf.high) |>
+  mutate_if(is.numeric, round, 3)
+
+taulukko_malli3 <- tidy(malli3, exponentiate = T, conf.int = T) |>
+  dplyr::select(Muuttuja = term, Estimaatti=estimate, "LV Alaraja" = conf.low, 
+         "LV Yläraja" = conf.high) |>
+  mutate_if(is.numeric, round, 3)
+
+
+taulukko_malli1
+taulukko_malli2
+taulukko_malli3
+```
+
+## Tallentaa yksinkertaiset taulukot
+
+```{r}
+write_xlsx(taulukko_malli1, here("results", "taulukko_malli1.xlsx"))
+write_xlsx(taulukko_malli2, here("results", "taulukko_malli2.xlsx"))
+write_xlsx(taulukko_malli3, here("results", "taulukko_malli3.xlsx"))
+```
+
+
+# Yhtenäinen taulukko
+
+```{r}
+
+muuttujat_yhdistettyyn_taulukkoon <- c(
+  # Pääselittäjä
+  "fa_masennus_keskiarvosummamuuttuja" = "Masennusoireiden jatkuvuus, 12kk",
+  
+  # Kontrollimuuttujat
+  
+  ## sukupuoli (vertailuryhmä: mies)
+  "sukupuolinainen" = "sukupuoli: Nainen",
+  "sukupuolimuu" = "sukupuoli: Muu",
+  
+  ## Ikäryhmät (vertailuryhmä: 18-24)
+  "ikaryhma25-34" = "Ikäryhmä: 25-34",
+  "ikaryhma35-44" = "Ikäryhmä: 35-44",
+  "ikaryhma45-54" = "Ikäryhmä: 45-54",
+  "ikaryhma55-64" = "Ikäryhmä: 55-64",
+  "ikaryhma65-79" = "Ikäryhmä: 65-79",
+  
+  ## Ylin koulutus (vertailuryhmä: Peruskoulu)
+  "ylin_koulutuslukio" = "Ylin koulutus: Lukio",
+  "ylin_koulutusammatillinen_koulutus" = "Ylin koulutus: Ammatillinen koulutus",
+  "ylin_koulutusalempi_korkeakoulututkinto" = "Ylin koulutus: Alempi korkeakoulututkinto",
+  "ylin_koulutusvahintaan_ylempi_korkeakoulututkinto" = "Ylin koulutus: Vähintään ylempi korkeakoulututkinto",
+  
+  "kotitalouden_ekvivalenttinettotulot_neliojuuri_tuhansina" = "Kotitalouden nettotulot 1000 €",
+  "saako_toimeentulotukeakylla" = "Saako toimeentulotukea: Kyllä",
+  
+  ## Työmarkkina-asema (vertailuryhmä: Palkansaaja)
+  "tyomarkkina_asemaopiskelija" = "Työmarkkina-asema: Opiskelija",
+  "tyomarkkina_asemaelakelainen" = "Työmarkkina-asema: Eläkeläinen",
+  "tyomarkkina_asematyoton" = "Työmarkkina-asema: Työtön",
+  "tyomarkkina_asemayrittaja" = "Työmarkkina-asema: Yrittäjä",
+  "tyomarkkina_asemamaanviljelija" = "Työmarkkina-asema: Maanviljelijä",
+  "tyomarkkina_asemamuu" = "Työmarkkina-asema: Muu",
+  
+  ## Kotitalouden muoto (vertailuryhmä: Yksinasuva)
+  "kotitalouden_muotoyksinhuoltaja" = "Kotitalouden muoto: Yksinhuoltaja",
+  "kotitalouden_muotoparisuhteessa_ilman_lapsia" = "Kotitalouden muoto: Parisuhteessa ilman lapsia",
+  "kotitalouden_muotoparisuhteessa_lapsia" = "Kotitalouden muoto: Parisuhteessa, lapsia",
+  "kotitalouden_muotoasuu_vanhempien_kanssa" = "Kotitalouden muoto: Asuu vanhempien kanssa",
+  "kotitalouden_muotomuu" = "Kotitalouden muoto: Muu",
+  
+  ## Yksinäisyyden jatkuvuus (vertailuryhmä: Ei lainkaan)
+  "yksinaisyyden_jatkuvuus_kokemushyvin_harvoin" = "Yksinäisyyden jatkuvuus, 12kk: Hyvin harvoin",
+  "yksinaisyyden_jatkuvuus_kokemusjoskus" = "Yksinäisyyden jatkuvuus, 12kk: Joskus",
+  "yksinaisyyden_jatkuvuus_kokemusmelko_usein" = "Yksinäisyyden jatkuvuus, 12kk: Melko usein",
+  "yksinaisyyden_jatkuvuus_kokemusjatkuvasti" = "Yksinäisyyden jatkuvuus, 12kk: Jatkuvasti",
+  
+  ## Luottamus ihmisiin (jatkava muuttuja)
+  "luottamus_ihmisiin" = "Luottamus ihmisiin (0-10)",
+  
+  # Kynnysarvot
+  "1|2" = "1|2", 
+  "2|3" = "2|3", 
+  "3|4" = "3|4", 
+  "4|5" = "4|5"
+)
+
+taulukko_yhdistetty <- modelsummary(
+  list("Malli 1" = malli1, "Malli 2" = malli2, "Malli 3" = malli3),
+  coef_map = muuttujat_yhdistettyyn_taulukkoon,
+  exponentiate = TRUE,
+  shape = term ~ model,
+  stars = TRUE,
+  estimate = "{estimate} [{conf.low}, {conf.high}] {stars}",
+  conf_level = 0.95,
+  fmt = 2,
+  statistic = NULL,
+  title = "Ordinaalinen logistinen regressio: vetosuhteet (OR), 95% luottamusvälit ja p-arvot tähdillä (*** p < 0.001, ** p < 0.01, * p < 0.05, + p < 0.1)",
+  gof_omit = "AIC|BIC|RMSE",
+  output = here("results", "taulukko_yhdistetty.xlsx")           
+  )
+
+taulukko_yhdistetty
+```
+
+
+# Siistii yhdistetyn taulukon ylimääräisestä ja tallentaa .xlsx tiedostoon
+
+```{r}
+
+taulukko_yhdistetty_siistitty <- taulukko_yhdistetty |>
+  select(-part, -statistic)
+
+taulukko_yhdistetty_siistitty
+
+write_xlsx(taulukko_yhdistetty_siistitty, here("results", "taulukko_yhdistetty_siistitty.xlsx"))
+```
+
+

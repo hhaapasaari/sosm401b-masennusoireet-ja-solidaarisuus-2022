@@ -1,0 +1,17 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+*.log
+*.pdf
+
+# Ei sisällytä data-kansion tiedostoja, paitsi kansion ja README.md tiedoston
+data/*
+!data/
+!data/README.md
+
+# Ei sisällytä vanhoja varmuuskopioita tai taulukoita, jota on siistitty Excelillä
+results/edited/*
+code/backup/*
+code/*.html

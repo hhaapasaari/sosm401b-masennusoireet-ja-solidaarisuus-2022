@@ -1,0 +1,49 @@
+---
+title: "Masennusoireiden jatkuvuuden suhde sosiaaliturvan solidaarisuuskäsityksiin suomenkielisillä mannersuomalaisilla vuonna 2022"
+author: Henri Haapasaari
+date: 2026-01-13
+output: html_notebook
+---
+
+# Faktorianalyysi
+
+```{r}
+
+# Suorittaa yhden faktorin faktorianalyysin principal axis menetelmällä
+
+fa_masennus <- fa(df_data_raw |> select(masennusksen_jatkuvuus_kokemus, epaonnistumisen_jatkuvuus_kokemus, onnellisuuden_jatkuvuus_kokemus_kaannetty), nfactors = 1, fm="pa", rotate = "varimax")
+print(fa_masennus)
+
+```
+
+# Tallentaa faktoripisteet muistissa olevaan aineistoon
+
+```{r}
+fa_masennus_faktoripisteet <- fa_masennus$scores |> as_tibble() |> rename(masennusoireiden_jatkuvuus_12kk = PA1)
+
+
+df_data_raw <- df_data_raw |> select(-matches(names(fa_masennus_faktoripisteet))) |> bind_cols(fa_masennus_faktoripisteet)
+```
+
+# Luo faktorianalyysin pohjalta keskiarvosummamuuttujan ja laskee cronbachin alfan
+
+```{r}
+# Luo keskiarvosummamuuttujan
+
+df_data_raw <- df_data_raw |> mutate(fa_masennus_keskiarvosummamuuttuja = rowMeans(across(one_of("masennusksen_jatkuvuus_kokemus", "epaonnistumisen_jatkuvuus_kokemus", "onnellisuuden_jatkuvuus_kokemus_kaannetty"))))
+
+# Laskee summamuuttujan Cronbachin alfan
+
+cr_al <- alpha(df_data_raw |> select(masennusksen_jatkuvuus_kokemus, epaonnistumisen_jatkuvuus_kokemus, onnellisuuden_jatkuvuus_kokemus_kaannetty))
+cr_al$total
+
+summary(df_data_raw$fa_masennus_keskiarvosummamuuttuja)
+```
+
+# Muuttujien tallennus
+
+```{r}
+# Päivittää faktorianalyysin ja keskiarvosummamuuttujan editoituun rds-tiedostoon
+
+saveRDS(df_data_raw, here("data", "data_edited.rds"))
+```

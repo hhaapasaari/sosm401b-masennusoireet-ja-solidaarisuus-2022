@@ -1,0 +1,41 @@
+---
+title: "Masennusoireiden jatkuvuuden suhde sosiaaliturvan solidaarisuuskäsityksiin suomenkielisillä mannersuomalaisilla vuonna 2022"
+author: Henri Haapasaari
+date: 2026-01-13
+output: html_notebook
+---
+
+# Tarkistaa taustamuuttujia MAR-puuttuvuudesta vakiointia varten
+
+Tarkistaa päämuuttujan puuttuvien arvojen suhdetta eri taustamuuttujiin.
+```{r}
+df_data_raw <- df_data_raw |> mutate(sosiaaliturva_solidaarisuus_puuttuvuus = ifelse(is.na(sosiaaliturva_koettu_solidaarisuus), 1, 0))
+
+puuttuvuus_malli <- glm(sosiaaliturva_solidaarisuus_puuttuvuus~ikaryhma+q7+q10_1+q10_2+t1+t2+t4+t5_1+t5_2+t5_3+t6+t7+t8+t12, data = df_data_raw, family=binomial(link="logit"))
+
+
+summary(puuttuvuus_malli)
+```
+
+# Brant testi ja ordinaalisen mallin diagnostiikka
+
+Testaa päteekö ordinaalisen logistisen regressiomallin _proportional odds assumption_ oletus, jos probability >.05 oletus pätee
+
+```{r}
+brant_malli1 <- brant(malli1)
+brant_malli2 <- brant(malli2)
+brant_malli3 <- brant(malli3)
+
+brant_malli1
+brant_malli2
+brant_malli3
+
+```
+
+# Tulostaa R:n ja pakettien versiot ylös
+
+```{r}
+sessionInfo()
+```
+
+
